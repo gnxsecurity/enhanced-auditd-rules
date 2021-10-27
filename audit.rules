@@ -1,0 +1,374 @@
+# Linux Audit Daemon Rules
+# /etc/audit/audit.rules
+# gnXsecurity.com:  https://github.com/gnxsecurity/enhanced-auditd-rules
+ 
+# Remove any existing rules
+-D
+ 
+# Buffer Size
+-b 8192
+ 
+# Failure Mode
+## Possible values: 0 (silent), 1 (printk, print a failure message), 2 (panic, halt the system)
+-f 1
+ 
+# Cointinue loading when certain errors are found (e.g monitoring a path that doesnt exist)
+# Leaving this enabled is recommended as multiple paths are setup to support a variety of linux distributions
+-i
+ 
+# Continue load rules when an error is found regarding the ruleset.  Uncomment to enable
+# -c
+ 
+##########################################
+####    [Self Auditing]          
+##########################################
+ 
+## Watch for audit tooling utilization which may indicate rule changes.
+-w /etc/audit/ -p wa -k auditconfig
+-w /etc/libaudit.conf -p wa -k auditconfig
+-w /etc/audisp/ -p wa -k audispconfig
+-w /sbin/auditctl -p x -k audittools
+-w /sbin/auditd -p x -k audittools
+
+## Monitor access to auditD logs
+-w /var/log/audit/ -k audit_log_access
+ 
+##########################################
+####    [Filtering]          
+##########################################
+ 
+## Ignore SELinux AVC records
+-a always,exclude -F msgtype=AVC
+ 
+## Ignore current working directory records
+-a always,exclude -F msgtype=CWD
+ 
+## Ignore EOE records (End Of Event, not needed)
+-a always,exclude -F msgtype=EOE
+ 
+## Cron jobs fill the logs with stuff we normally don't want (works with SELinux)
+-a never,user -F subj_type=crond_t
+-a exit,never -F subj_type=crond_t
+  
+### High Volume Event Filter (shared memory, etc).
+-a exit,never -F arch=b32 -F dir=/dev/shm -k shared_memory_access
+-a exit,never -F arch=b64 -F dir=/dev/shm -k shared_memory_access
+-a exit,never -F arch=b32 -F dir=/var/lock/lvm -k lock_lvm
+-a exit,never -F arch=b64 -F dir=/var/lock/lvm -k lock_lvm
+
+##########################################
+####    [Docker]          
+##########################################
+
+-w /usr/bin/docker -p wxa -k docker_daemon
+-w /usr/bin/docker-compose -p wxa -k docker_daemon
+-w /usr/local/bin/docker -p wxa -k docker_daemon
+-w /var/lib/docker -p wxa -k docker_daemon
+-w /etc/docker -p wxa -k docker_daemon
+
+##########################################
+####    [Core Rules]          
+##########################################
+ 
+## Kernel parameters
+-w /etc/sysctl.conf -p wa -k sysctl
+ 
+## Kernel module loading and unloading
+-a always,exit -F perm=x -F auid!=-1 -F path=/sbin/insmod -k kernel_modules
+-a always,exit -F perm=x -F auid!=-1 -F path=/sbin/modprobe -k kernel_modules
+-a always,exit -F perm=x -F auid!=-1 -F path=/sbin/rmmod -k kernel_modules
+-a always,exit -F perm=x -F auid!=-1 -F path=/sbin/kmod -k kernel_modules
+
+## Module interaction uses finit_module
+-a always,exit -F arch=b64 -S finit_module -S init_module -S delete_module -F auid!=-1 -k kernel_modules
+-a always,exit -F arch=b32 -S finit_module -S init_module -S delete_module -F auid!=-1 -k kernel_modules
+ 
+## Modprobe configuration
+-w /etc/modprobe.conf -p wa -k kernel_modules
+ 
+## KExec usage (kernel execution and side loading) (all actions)
+-a always,exit -F arch=b64 -S kexec_load -k kernel_exec
+-a always,exit -F arch=b32 -S sys_kexec_load -k kernel_exec
+ 
+## Special files
+-a exit,always -F arch=b32 -S mknod -S mknodat -k special_files
+-a exit,always -F arch=b64 -S mknod -S mknodat -k special_files
+ 
+## Mount operations (only attributable)
+-a always,exit -F arch=b64 -S mount -S umount2 -F auid!=-1 -k mount_operation
+-a always,exit -F arch=b32 -S mount -S umount -S umount2 -F auid!=-1 -k mount_operation
+ 
+# Change swap (only attributable)
+-a always,exit -F arch=b64 -S swapon -S swapoff -F auid!=-1 -k swap_operation
+-a always,exit -F arch=b32 -S swapon -S swapoff -F auid!=-1 -k swap_operation
+ 
+## Time
+-a exit,always -F arch=b32 -S adjtimex -S settimeofday -S clock_settime -k time_operation
+-a exit,always -F arch=b64 -S adjtimex -S settimeofday -S clock_settime -k time_operation
+
+### Local time zone
+-w /etc/localtime -p wa -k time_operation
+ 
+## Stunnel
+-w /usr/sbin/stunnel -p x -k secure_tunnel
+ 
+## Cron configuration & scheduled jobs modifications
+-w /etc/cron.allow -p wa -k cron_modifications
+-w /etc/cron.deny -p wa -k cron_modifications
+-w /etc/cron.d/ -p wa -k cron_modifications
+-w /etc/cron.daily/ -p wa -k cron_modifications
+-w /etc/cron.hourly/ -p wa -k cron_modifications
+-w /etc/cron.monthly/ -p wa -k cron_modifications
+-w /etc/cron.weekly/ -p wa -k cron_modifications
+-w /etc/crontab -p wa -k cron_modifications
+-w /var/spool/cron/crontabs/ -k cron_modifications
+ 
+## User, group, password databases modifications
+-w /etc/group -p wa -k group_modifications
+-w /etc/passwd -p wa -k passwd_modifications
+-w /etc/gshadow -k group_modifications
+-w /etc/shadow -k passwd_modifications
+-w /etc/security/opasswd -k passwd_modifications
+ 
+## Sudoers file changes
+-w /etc/sudoers -p wa -k sudo_modifications
+-w /etc/sudoers.d -p wa -k sudo_modifications
+ 
+## Passwd
+-w /usr/bin/passwd -p x -k passwd_modifications
+ 
+## Tools to change group identifiers
+-w /usr/sbin/groupadd -p x -k group_modifications
+-w /usr/sbin/groupmod -p x -k group_modifications
+-w /usr/sbin/addgroup -p x -k group_modifications
+-w /usr/sbin/useradd -p x -k user_modifications
+-w /usr/sbin/usermod -p x -k user_modifications
+-w /usr/sbin/adduser -p x -k user_modifications
+ 
+## Login configuration and information
+-w /etc/login.defs -p wa -k login_modifications
+-w /etc/securetty -p wa -k login_modifications
+-w /var/log/faillog -p wa -k login_modifications
+-w /var/log/lastlog -p wa -k login_modifications
+-w /var/log/tallylog -p wa -k login_modifications
+-w /var/run/faillock -p wa -k login_modifications
+ 
+## Network Environment
+### Changes to hostname
+-a always,exit -F arch=b32 -S sethostname -S setdomainname -k network_modifications
+-a always,exit -F arch=b64 -S sethostname -S setdomainname -k network_modifications
+
+### Changes to other files
+-w /etc/hosts -p wa -k network_modifications
+-w /etc/sysconfig/network -p wa -k network_modifications
+-w /etc/network/ -p wa -k network_modifications
+-a always,exit -F dir=/etc/NetworkManager/ -F perm=wa -k network_modifications
+ 
+## System startup scripts
+-w /etc/inittab -p wa -k init_modifications
+-w /etc/init.d/ -p wa -k init_modifications
+-w /etc/init/ -p wa -k init_modifications
+ 
+## Library search paths
+-w /etc/ld.so.conf -p wa -k ldso_modifications
+ 
+## Pam configuration
+-w /etc/pam.d/ -p wa -k pam_modifications
+-w /etc/security/limits.conf -p wa  -k pam_modifications
+-w /etc/security/pam_env.conf -p wa -k pam_modifications
+-w /etc/security/namespace.conf -p wa -k pam_modifications
+-w /etc/security/namespace.init -p wa -k pam_modifications
+ 
+## SSH configuration
+-w /etc/ssh/sshd_config -k sshd
+ 
+# Systemd
+-w /bin/systemctl -p x -k systemd_execution
+-w /etc/systemd/ -p wa -k systemd_modifications
+ 
+## SELinux events that modify the system's Mandatory Access Controls (MAC)
+-w /etc/selinux/ -p wa -k mac_policy
+ 
+## Critical elements access failures
+-a exit,always -F arch=b64 -S open -F dir=/etc -F success=0 -k unauthedfileaccess
+-a exit,always -F arch=b64 -S open -F dir=/bin -F success=0 -k unauthedfileaccess
+-a exit,always -F arch=b64 -S open -F dir=/sbin -F success=0 -k unauthedfileaccess
+-a exit,always -F arch=b64 -S open -F dir=/usr/bin -F success=0 -k unauthedfileaccess
+-a exit,always -F arch=b64 -S open -F dir=/usr/sbin -F success=0 -k unauthedfileaccess
+-a exit,always -F arch=b64 -S open -F dir=/var -F success=0 -k unauthedfileaccess
+-a exit,always -F arch=b64 -S open -F dir=/home -F success=0 -k unauthedfileaccess
+-a exit,always -F arch=b64 -S open -F dir=/tmp -F success=0 -k unauthedfileaccess
+ 
+## Process ID change (switching accounts) applications
+-w /bin/su -p x -k su_execution
+-w /usr/bin/sudo -p x -k sudo_execution
+-w /etc/sudoers -p rw -k sudo_modifications
+-w /etc/sudoers.d -p wa -k sudo_modifications
+ 
+## Power state
+-w /sbin/shutdown -p x -k system_state_modifications
+-w /sbin/poweroff -p x -k system_state_modifications
+-w /sbin/reboot -p x -k system_state_modifications
+-w /sbin/halt -p x -k system_state_modifications
+-w /usr/sbin/runlevel -p x -k system_state_modifications
+ 
+## Session initiation information
+-w /var/run/utmp -p wa -k session_events
+-w /var/log/btmp -p wa -k session_events
+-w /var/log/wtmp -p wa -k session_events
+ 
+## Discretionary Access Control (DAC) modifications
+-a always,exit -F arch=b32 -S chmod -F auid>=500 -F auid!=4294967295 -k permission_modifications
+-a always,exit -F arch=b32 -S chown -F auid>=500 -F auid!=4294967295 -k permission_modifications
+-a always,exit -F arch=b32 -S fchmod -F auid>=500 -F auid!=4294967295 -k permission_modifications
+-a always,exit -F arch=b32 -S fchmodat -F auid>=500 -F auid!=4294967295 -k permission_modifications
+-a always,exit -F arch=b32 -S fchown -F auid>=500 -F auid!=4294967295 -k permission_modifications
+-a always,exit -F arch=b32 -S fchownat -F auid>=500 -F auid!=4294967295 -k permission_modifications
+-a always,exit -F arch=b32 -S fremovexattr -F auid>=500 -F auid!=4294967295 -k permission_modifications
+-a always,exit -F arch=b32 -S fsetxattr -F auid>=500 -F auid!=4294967295 -k permission_modifications
+-a always,exit -F arch=b32 -S lchown -F auid>=500 -F auid!=4294967295 -k permission_modifications
+-a always,exit -F arch=b32 -S lremovexattr -F auid>=500 -F auid!=4294967295 -k permission_modifications
+-a always,exit -F arch=b32 -S lsetxattr -F auid>=500 -F auid!=4294967295 -k permission_modifications
+-a always,exit -F arch=b32 -S removexattr -F auid>=500 -F auid!=4294967295 -k permission_modifications
+-a always,exit -F arch=b32 -S setxattr -F auid>=500 -F auid!=4294967295 -k permission_modifications
+-a always,exit -F arch=b64 -S chmod  -F auid>=500 -F auid!=4294967295 -k permission_modifications
+-a always,exit -F arch=b64 -S chown -F auid>=500 -F auid!=4294967295 -k permission_modifications
+-a always,exit -F arch=b64 -S fchmod -F auid>=500 -F auid!=4294967295 -k permission_modifications
+-a always,exit -F arch=b64 -S fchmodat -F auid>=500 -F auid!=4294967295 -k permission_modifications
+-a always,exit -F arch=b64 -S fchown -F auid>=500 -F auid!=4294967295 -k permission_modifications
+-a always,exit -F arch=b64 -S fchownat -F auid>=500 -F auid!=4294967295 -k permission_modifications
+-a always,exit -F arch=b64 -S fremovexattr -F auid>=500 -F auid!=4294967295 -k permission_modifications
+-a always,exit -F arch=b64 -S fsetxattr -F auid>=500 -F auid!=4294967295 -k permission_modifications
+-a always,exit -F arch=b64 -S lchown -F auid>=500 -F auid!=4294967295 -k permission_modifications
+-a always,exit -F arch=b64 -S lremovexattr -F auid>=500 -F auid!=4294967295 -k permission_modifications
+-a always,exit -F arch=b64 -S lsetxattr -F auid>=500 -F auid!=4294967295 -k permission_modifications
+-a always,exit -F arch=b64 -S removexattr -F auid>=500 -F auid!=4294967295 -k permission_modifications
+-a always,exit -F arch=b64 -S setxattr -F auid>=500 -F auid!=4294967295 -k permission_modifications
+ 
+##########################################
+####    [Specialized Rules]          
+##########################################
+ 
+## AWS specific rules
+-w /usr/bin/aws -p wx -k suspect_activity
+-w /opt/aws/bin -p wx -k suspect_activity
+ 
+## Temporary files monitor (execution)
+-w /tmp -p x -k suspect_activity
+-w /var/tmp -p x -k suspect_activity
+ 
+## Reconnaissance
+-w /usr/bin/whoami -p x -k suspect_activity
+-w /etc/issue -p r -k suspect_activity
+-w /etc/hostname -p r -k suspect_activity
+ 
+## Suspicious activity
+-w /usr/bin/wget -p x -k suspect_activity
+-w /usr/bin/curl -p x -k suspect_activity
+-w /usr/bin/base64 -p x -k suspect_activity
+-w /bin/nc -p x -k suspect_activity
+-w /bin/netcat -p x -k suspect_activity
+-w /usr/bin/ncat -p x -k suspect_activity
+-w /usr/bin/ssh -p x -k suspect_activity
+-w /usr/bin/socat -p x -k suspect_activity
+-w /usr/bin/wireshark -p x -k suspect_activity
+-w /usr/bin/rawshark -p x -k suspect_activity
+-w /usr/bin/rdesktop -p x -k suspect_activity
+ 
+## Sbin suspicious activity
+-w /sbin/iptables -p x -k suspect_activity
+-w /sbin/ifconfig -p x -k suspect_activity
+-w /sbin/mount.nfs -p x -k suspect_activity
+-w /sbin/service -p x -k suspect_activity
+-w /usr/sbin/tcpdump -p x -k suspect_activity
+-w /usr/sbin/traceroute -p x -k suspect_activity
+ 
+## Injection
+### These rules watch for code injection by the ptrace facility.
+### This could indicate someone trying to do something bad or just debugging
+-a always,exit -F arch=b32 -S ptrace -k suspect_activity
+-a always,exit -F arch=b64 -S ptrace -k suspect_activity
+-a always,exit -F arch=b32 -S ptrace -F a0=0x4 -k suspect_activity
+-a always,exit -F arch=b64 -S ptrace -F a0=0x4 -k suspect_activity
+-a always,exit -F arch=b32 -S ptrace -F a0=0x5 -k suspect_activity
+-a always,exit -F arch=b64 -S ptrace -F a0=0x5 -k suspect_activity
+-a always,exit -F arch=b32 -S ptrace -F a0=0x6 -k suspect_activity
+-a always,exit -F arch=b64 -S ptrace -F a0=0x6 -k suspect_activity
+ 
+## Privilege Abuse
+### The purpose of this rule is to detect when an admin may be abusing power by looking in user's home dir.
+-a always,exit -F dir=/home -F uid=0 -F auid>=1000 -F auid!=4294967295 -C auid!=obj_uid -k suspect_activity
+ 
+##########################################
+####    [Software Rules]          
+########################################## 
+
+# RPM (Redhat/CentOS)
+-w /usr/bin/rpm -p x -k software_management
+-w /usr/bin/yum -p x -k software_management
+-w /usr/bin/dnf -p x -k software_management
+ 
+# DPKG / APT-GET (Debian/Ubuntu)
+-w /usr/bin/dpkg -p x -k software_management
+-w /usr/bin/apt-add-repository -p x -k software_management
+-w /usr/bin/apt-get -p x -k software_management
+-w /usr/bin/aptitude -p x -k software_management
+ 
+##########################################
+####    [High volume rules]          
+########################################## 
+ 
+## Root command executions
+-a exit,always -F arch=b64 -F euid=0 -S execve -k root_command
+-a exit,always -F arch=b32 -F euid=0 -S execve -k root_command
+ 
+## Log all sudo commands
+-a always,exit -F path=/usr/bin/sudo -F perm=x -F auid>=1000 -F auid!=unset -F key=privcmd -k sudo_command
+ 
+## Log all command executions for all users
+-a exit,always -F arch=b64 -F euid>=1000 -S execve -k user_command
+-a exit,always -F arch=b32 -F euid>=1000 -S execve -k user_command
+ 
+## Successful Events by User (tends to be verbose)
+-a always,exit -F arch=b32 -S rmdir -S unlink -S unlinkat -S rename -S renameat -F auid>=500 -F auid!=4294967295 -k success_delete
+-a always,exit -F arch=b64 -S rmdir -S unlink -S unlinkat -S rename -S renameat -F auid>=500 -F auid!=4294967295 -k success_delete
+-a always,exit -F arch=b32 -S creat -F success=1 -F auid>=1000 -F auid!=unset -F key=success_create
+-a always,exit -F arch=b64 -S creat -F success=1 -F auid>=1000 -F auid!=unset -F key=success_create
+-a always,exit -F arch=b32 -S truncate,ftruncate -F success=1 -F auid>=1000 -F auid!=unset -F key=success_modification
+-a always,exit -F arch=b64 -S truncate,ftruncate -F success=1 -F auid>=1000 -F auid!=unset -F key=success_modification
+ 
+##########################################
+####    [Failed File Events]          
+##########################################
+ 
+## Unsuccessful deletion
+-a always,exit -F arch=b32 -S unlink,rmdir,unlinkat -F exit=-EACCES -k failed_delete
+-a always,exit -F arch=b64 -S rmdir,unlink,unlinkat -F exit=-EACCES -k failed_delete
+-a always,exit -F arch=b32 -S unlink,rmdir,unlinkat -F exit=-EPERM -k failed_delete
+-a always,exit -F arch=b64 -S rmdir,unlink,unlinkat -F exit=-EPERM -k failed_delete
+ 
+## Unauthorized Access (unsuccessful)
+-a always,exit -F arch=b32 -S creat -S open -S openat -S open_by_handle_at -S truncate -S ftruncate -F exit=-EACCES -F auid>=500 -F auid!=4294967295 -k failed_access
+-a always,exit -F arch=b32 -S creat -S open -S openat -S open_by_handle_at -S truncate -S ftruncate -F exit=-EPERM -F auid>=500 -F auid!=4294967295 -k failed_access
+-a always,exit -F arch=b64 -S creat -S open -S openat -S open_by_handle_at -S truncate -S ftruncate -F exit=-EACCES -F auid>=500 -F auid!=4294967295 -k failed_access
+-a always,exit -F arch=b64 -S creat -S open -S openat -S open_by_handle_at -S truncate -S ftruncate -F exit=-EPERM -F auid>=500 -F auid!=4294967295 -k failed_access
+ 
+## Unsuccessful Creation
+-a always,exit -F arch=b32 -S creat,link,mknod,mkdir,symlink,mknodat,linkat,symlinkat -F exit=-EACCES -k failed_creation
+-a always,exit -F arch=b64 -S mkdir,creat,link,symlink,mknod,mknodat,linkat,symlinkat -F exit=-EACCES -k failed_creation
+-a always,exit -F arch=b32 -S link,mkdir,symlink,mkdirat -F exit=-EPERM -k failed_creation
+-a always,exit -F arch=b64 -S mkdir,link,symlink,mkdirat -F exit=-EPERM -k failed_creation
+ 
+## Unsuccessful Modification
+-a always,exit -F arch=b32 -S rename -S renameat -S truncate -S chmod -S setxattr -S lsetxattr -S removexattr -S lremovexattr -F exit=-EACCES -k failed_modification
+-a always,exit -F arch=b64 -S rename -S renameat -S truncate -S chmod -S setxattr -S lsetxattr -S removexattr -S lremovexattr -F exit=-EACCES -k failed_modification
+-a always,exit -F arch=b32 -S rename -S renameat -S truncate -S chmod -S setxattr -S lsetxattr -S removexattr -S lremovexattr -F exit=-EPERM -k failed_modification
+-a always,exit -F arch=b64 -S rename -S renameat -S truncate -S chmod -S setxattr -S lsetxattr -S removexattr -S lremovexattr -F exit=-EPERM -k failed_modification
+ 
+
+##########################################
+####    [Misc Rules]          
+##########################################
+ 
+## Monitor 32-bit calls on 64-bit system
+-a always,exit -F arch=b32 -S all -k 32_bit_call
